@@ -37,6 +37,22 @@ module OpenTelemetry
             end
           end
 
+          def execute_tool(tool_call)
+            attributes = {
+              "gen_ai.tool.name" => tool_call.name,
+              "gen_ai.tool.call.id" => tool_call.id,
+              "gen_ai.tool.call.arguments" => tool_call.arguments.to_json,
+              "gen_ai.tool.type" => "function"
+            }
+
+            tracer.in_span("execute_tool #{tool_call.name}", attributes: attributes, kind: OpenTelemetry::Trace::SpanKind::INTERNAL) do |span|
+              result = super
+              result_str = result.is_a?(::RubyLLM::Tool::Halt) ? result.content.to_s : result.to_s
+              span.set_attribute("gen_ai.tool.call.result", result_str[0..500])
+              result
+            end
+          end
+
           private
 
           def tracer

@@ -6,6 +6,7 @@ gemspec
 
 gem "ruby_llm"
 gem "opentelemetry-sdk"
+gem "opentelemetry-exporter-otlp"
 
 group :test do
   gem "minitest"

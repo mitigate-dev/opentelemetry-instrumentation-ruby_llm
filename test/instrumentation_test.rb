@@ -66,4 +66,79 @@ class InstrumentationTest < Minitest::Test
     assert span.attributes["error.type"]
     assert_equal OpenTelemetry::Trace::Status::ERROR, span.status.code
   end
+
+  def test_creates_span_for_tool_call
+    calculator = Class.new(RubyLLM::Tool) do
+      def self.name = "calculator"
+      description "Performs math"
+      param :expression, type: "string", desc: "Math expression"
+
+      def execute(expression:)
+        eval(expression).to_s
+      end
+    end
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(
+        {
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: {
+            id: "chatcmpl-123",
+            object: "chat.completion",
+            model: "gpt-4o-mini",
+            choices: [{
+              index: 0,
+              message: {
+                role: "assistant",
+                content: nil,
+                tool_calls: [{
+                  id: "call_abc123",
+                  type: "function",
+                  function: { name: "calculator", arguments: '{"expression":"2+2"}' }
+                }]
+              },
+              finish_reason: "tool_calls"
+            }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+          }.to_json
+        },
+        {
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: {
+            id: "chatcmpl-456",
+            object: "chat.completion",
+            model: "gpt-4o-mini",
+            choices: [{
+              index: 0,
+              message: { role: "assistant", content: "The answer is 4" },
+              finish_reason: "stop"
+            }],
+            usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
+          }.to_json
+        }
+      )
+
+    chat = RubyLLM.chat(model: "gpt-4o-mini")
+    chat.with_tool(calculator)
+    chat.ask("What is 2+2?")
+
+    spans = EXPORTER.finished_spans
+
+    tool_spans = spans.select { |s| s.name.start_with?("execute_tool ") }
+    chat_spans = spans.select { |s| s.name.include?("chat ") }
+
+    assert_equal 1, tool_spans.length
+    assert_equal 1, chat_spans.length
+
+    tool_span = tool_spans.first
+    assert_equal OpenTelemetry::Trace::SpanKind::INTERNAL, tool_span.kind
+    assert_equal "execute_tool calculator", tool_span.name
+    assert_equal "calculator", tool_span.attributes["gen_ai.tool.name"]
+    assert_equal '{"expression":"2+2"}', tool_span.attributes["gen_ai.tool.call.arguments"]
+    assert_equal "4", tool_span.attributes["gen_ai.tool.call.result"]
+    assert_equal "call_abc123", tool_span.attributes["gen_ai.tool.call.id"]
+    assert_equal "function", tool_span.attributes["gen_ai.tool.type"]
+  end
 end
