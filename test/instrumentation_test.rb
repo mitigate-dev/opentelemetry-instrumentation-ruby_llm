@@ -626,7 +626,7 @@ class InstrumentationTest < Minitest::Test
     span = EXPORTER.finished_spans.first
     input_messages = JSON.parse(span.attributes["gen_ai.input.messages"])
     assert_equal(
-      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "raw payload" }] }],
+      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "raw payload" }].to_json }],
       input_messages[0]["parts"]
     )
   ensure
@@ -664,7 +664,7 @@ class InstrumentationTest < Minitest::Test
     span = EXPORTER.finished_spans.first
     system_instructions = JSON.parse(span.attributes["gen_ai.system_instructions"])
     assert_equal(
-      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "You are helpful" }] }],
+      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "You are helpful" }].to_json }],
       system_instructions
     )
   ensure

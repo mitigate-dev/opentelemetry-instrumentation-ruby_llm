@@ -50,10 +50,10 @@ module OpenTelemetry
           # `RubyLLM::Content::Raw` was added in ruby_llm 1.9.0, so guard the
           # constant rather than referencing it in a `case`/`when`.
           if defined?(::RubyLLM::Content::Raw) && content.is_a?(::RubyLLM::Content::Raw)
-            # A `GenericPart` (custom `type`) so the provider-specific payload
-            # is preserved verbatim without clashing with the standard part
-            # types. The raw value is passed through as-is, not re-encoded.
-            [{ type: "raw", content: content.value }]
+            # Serialize the provider-specific payload to JSON so consumers
+            # (e.g. Langfuse) render it as readable text rather than
+            # `[object Object]`.
+            [{ type: "raw", content: content.value.to_json }]
           elsif content.is_a?(::RubyLLM::Content)
             parts = []
             parts << { type: "text", content: content.text } unless content.text.nil?
