@@ -552,6 +552,125 @@ class InstrumentationTest < Minitest::Test
     assert_equal "Hello!", response.content
   end
 
+  def test_captures_ruby_llm_content_with_attachments
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = true
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(
+        status: 200,
+        headers: { "Content-Type" => "application/json" },
+        body: {
+          id: "chatcmpl-123",
+          object: "chat.completion",
+          model: "gpt-4o-mini",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "A cat." },
+            finish_reason: "stop"
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        }.to_json
+      )
+
+    content = RubyLLM::Content.new("What is this?", "https://example.com/cat.png")
+
+    chat = RubyLLM.chat(model: "gpt-4o-mini")
+    chat.add_message(role: :user, content: content)
+    chat.complete
+
+    span = EXPORTER.finished_spans.first
+    input_messages = JSON.parse(span.attributes["gen_ai.input.messages"])
+    assert_equal(
+      [
+        { "type" => "text", "content" => "What is this?" },
+        {
+          "type" => "uri",
+          "modality" => "image",
+          "mime_type" => "image/png",
+          "uri" => "https://example.com/cat.png"
+        }
+      ],
+      input_messages[0]["parts"]
+    )
+  ensure
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = false
+  end
+
+  def test_captures_ruby_llm_content_raw
+    skip "RubyLLM::Content::Raw not available before ruby_llm 1.9.0" unless defined?(RubyLLM::Content::Raw)
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = true
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(
+        status: 200,
+        headers: { "Content-Type" => "application/json" },
+        body: {
+          id: "chatcmpl-123",
+          object: "chat.completion",
+          model: "gpt-4o-mini",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "Acknowledged." },
+            finish_reason: "stop"
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        }.to_json
+      )
+
+    raw = RubyLLM::Content::Raw.new([{ type: "text", text: "raw payload" }])
+
+    chat = RubyLLM.chat(model: "gpt-4o-mini")
+    chat.add_message(role: :user, content: raw)
+    chat.complete
+
+    span = EXPORTER.finished_spans.first
+    input_messages = JSON.parse(span.attributes["gen_ai.input.messages"])
+    assert_equal(
+      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "raw payload" }] }],
+      input_messages[0]["parts"]
+    )
+  ensure
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = false
+  end
+
+  def test_captures_ruby_llm_content_raw_system_instructions
+    skip "RubyLLM::Content::Raw not available before ruby_llm 1.9.0" unless defined?(RubyLLM::Content::Raw)
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = true
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(
+        status: 200,
+        headers: { "Content-Type" => "application/json" },
+        body: {
+          id: "chatcmpl-123",
+          object: "chat.completion",
+          model: "gpt-4o-mini",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "Acknowledged." },
+            finish_reason: "stop"
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        }.to_json
+      )
+
+    raw_block = RubyLLM::Content::Raw.new([{ type: "text", text: "You are helpful" }])
+
+    chat = RubyLLM.chat(model: "gpt-4o-mini")
+    chat.add_message(role: :system, content: raw_block)
+    chat.add_message(role: :user, content: "Hi")
+    chat.complete
+
+    span = EXPORTER.finished_spans.first
+    system_instructions = JSON.parse(span.attributes["gen_ai.system_instructions"])
+    assert_equal(
+      [{ "type" => "raw", "content" => [{ "type" => "text", "text" => "You are helpful" }] }],
+      system_instructions
+    )
+  ensure
+    OpenTelemetry::Instrumentation::RubyLLM::Instrumentation.instance.config[:capture_content] = false
+  end
+
   def test_captures_content_when_enabled_via_env_var
     ENV["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
 

@@ -32,6 +32,7 @@ module OpenTelemetry
         end
 
         install do |_config|
+          require_relative "message_formatter"
           require_relative "patches/chat"
           require_relative "patches/embedding"
           ::RubyLLM::Chat.prepend(Patches::Chat)
